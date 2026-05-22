@@ -384,52 +384,69 @@ function setSyncStatus(state, msg) {
   txt.textContent = msg;
 }
 
-// ── GOOGLE SHEETS: CARGA ─────────────────────────────────────────────
-async function cargarGastos() {
+// ── GOOGLE SHEETS: CARGA (JSONP para evitar CORS) ────────────────────
+function cargarGastos() {
   setSyncStatus('loading', 'Sincronizando…');
-  try {
-    const res = await fetch(SCRIPT_URL, { method:'GET', mode:'cors' });
-    const data = await res.json();
-    gastos = data
-      .filter(r => r.id && r.fecha && r.monto)
-      .map(r => ({
-        id: String(r.id),
-        fecha: String(r.fecha),
-        desc: String(r.desc || ''),
-        cat: String(r.cat || 'otro'),
-        monto: parseFloat(r.monto) || 0,
-        nota: String(r.nota || ''),
-      }));
-    syncOk = true;
-    setSyncStatus('ok', 'Sincronizado');
-    render();
-  } catch(e) {
+
+  // Limpiar callback anterior
+  const old = document.getElementById('jsonp-script');
+  if(old) old.remove();
+
+  const cbName = 'cb_' + Date.now();
+  window[cbName] = function(data) {
+    try {
+      gastos = (Array.isArray(data) ? data : [])
+        .filter(r => r.id && r.fecha && r.monto)
+        .map(r => ({
+          id:    String(r.id),
+          fecha: String(r.fecha),
+          desc:  String(r.desc || ''),
+          cat:   String(r.cat  || 'otro'),
+          monto: parseFloat(r.monto) || 0,
+          nota:  String(r.nota || ''),
+        }));
+      syncOk = true;
+      setSyncStatus('ok', 'Sincronizado');
+      render();
+    } catch(e) {
+      setSyncStatus('error', 'Error de datos');
+    }
+    delete window[cbName];
+  };
+
+  const s = document.createElement('script');
+  s.id  = 'jsonp-script';
+  s.src = SCRIPT_URL + '?callback=' + cbName + '&t=' + Date.now();
+  s.onerror = function() {
     setSyncStatus('error', 'Sin conexión');
-    // Usar localStorage como fallback
     const local = localStorage.getItem('autobox_gastos_fallback');
     if(local) { gastos = JSON.parse(local); render(); }
     else { render(); }
-    toast('Sin conexión a Google Sheets. Usando datos locales.', 'error');
-  }
+    toast('Sin conexión. Mostrando datos locales.', 'error');
+    delete window[cbName];
+  };
+  document.head.appendChild(s);
 }
 
-// ── GOOGLE SHEETS: GUARDAR ───────────────────────────────────────────
+// ── GOOGLE SHEETS: GUARDAR (no-cors) ─────────────────────────────────
 async function pushGasto(gasto) {
-  const res = await fetch(SCRIPT_URL, {
-    method: 'POST', mode: 'cors',
+  // Usamos no-cors: no podemos leer la respuesta pero el dato sí llega al servidor
+  await fetch(SCRIPT_URL, {
+    method:  'POST',
+    mode:    'no-cors',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ action:'add', ...gasto })
+    body:    JSON.stringify({ action:'add', ...gasto }),
   });
-  return res.json();
+  // Con no-cors la respuesta es opaca, asumimos éxito si no lanza error
 }
 
 async function deleteGasto(id) {
-  const res = await fetch(SCRIPT_URL, {
-    method: 'POST', mode: 'cors',
+  await fetch(SCRIPT_URL, {
+    method:  'POST',
+    mode:    'no-cors',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ action:'delete', id })
+    body:    JSON.stringify({ action:'delete', id }),
   });
-  return res.json();
 }
 
 // ── HELPERS ──────────────────────────────────────────────────────────
@@ -652,6 +669,7 @@ document.getElementById('f-fecha').value = new Date().toISOString().split('T')[0
 cargarGastos();
 // Recargar cada 60s para mantener sincronizado
 setInterval(cargarGastos, 60000);
+
 </script>
 </body>
 </html>
