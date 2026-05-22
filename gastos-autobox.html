@@ -595,7 +595,7 @@ function render() {
           <div class="exp-meta">
             <span class="exp-cat-badge" style="background:${c.bg};color:${c.color};">${c.label}</span>
             ${fmtDate(g.fecha)}
-            ${g.usuario ? \`· <span style="font-weight:600;color:var(--text2)">\${g.usuario}</span>\` : ''}
+            ${g.usuario ? '· <span style="font-weight:600;color:var(--text2)">' + g.usuario + '</span>' : ''}
           </div>
           ${g.nota ? `<div class="exp-nota">💬 ${escHtml(g.nota)}</div>` : ''}
         </div>
