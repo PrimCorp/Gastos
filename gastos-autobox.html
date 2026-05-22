@@ -429,24 +429,37 @@ function cargarGastos() {
 }
 
 // ── GOOGLE SHEETS: GUARDAR (no-cors) ─────────────────────────────────
-async function pushGasto(gasto) {
-  // Usamos no-cors: no podemos leer la respuesta pero el dato sí llega al servidor
-  await fetch(SCRIPT_URL, {
-    method:  'POST',
-    mode:    'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify({ action:'add', ...gasto }),
+// JSONP universal para guardar/eliminar sin CORS
+function jsonpCall(params) {
+  return new Promise((resolve, reject) => {
+    const old = document.getElementById('jsonp-action');
+    if(old) old.remove();
+    const cbName = 'jcb_' + Date.now();
+    window[cbName] = function(data) { delete window[cbName]; resolve(data); };
+    const s = document.createElement('script');
+    s.id = 'jsonp-action';
+    const qs = Object.entries({...params, callback: cbName, t: Date.now()})
+      .map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
+    s.src = SCRIPT_URL + '?' + qs;
+    s.onerror = () => { delete window[cbName]; reject(new Error('Error de red')); };
+    document.head.appendChild(s);
   });
-  // Con no-cors la respuesta es opaca, asumimos éxito si no lanza error
+}
+
+async function pushGasto(gasto) {
+  await jsonpCall({
+    action: 'add',
+    id:     gasto.id,
+    fecha:  gasto.fecha,
+    desc:   gasto.desc,
+    cat:    gasto.cat,
+    monto:  gasto.monto,
+    nota:   gasto.nota || ''
+  });
 }
 
 async function deleteGasto(id) {
-  await fetch(SCRIPT_URL, {
-    method:  'POST',
-    mode:    'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify({ action:'delete', id }),
-  });
+  await jsonpCall({ action: 'delete', id });
 }
 
 // ── HELPERS ──────────────────────────────────────────────────────────
