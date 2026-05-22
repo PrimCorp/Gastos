@@ -267,6 +267,7 @@ body {
       <div class="kpi-label">Total gastado este mes</div>
       <div class="kpi-value accent" id="k-total">$0.00</div>
       <div class="kpi-sub" id="k-total-sub">Cargando datos…</div>
+      <div id="k-usuarios" style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;"></div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Transacciones</div>
@@ -301,6 +302,13 @@ body {
   <!-- FORM -->
   <div class="section-title">Registrar nuevo gasto</div>
   <div class="form-card">
+    <div class="field">
+      <label>¿Quién registra?</label>
+      <select id="f-usuario">
+        <option value="Danny">👤 Danny</option>
+        <option value="Tatiana">👤 Tatiana</option>
+      </select>
+    </div>
     <div class="field">
       <label>Descripción *</label>
       <input type="text" id="f-desc" placeholder="Ej: Componentes, gasolina, herramienta…" maxlength="80" />
@@ -397,14 +405,27 @@ function cargarGastos() {
     try {
       gastos = (Array.isArray(data) ? data : [])
         .filter(r => r.id && r.fecha && r.monto)
-        .map(r => ({
-          id:    String(r.id),
-          fecha: String(r.fecha),
-          desc:  String(r.desc || ''),
-          cat:   String(r.cat  || 'otro'),
-          monto: parseFloat(r.monto) || 0,
-          nota:  String(r.nota || ''),
-        }));
+        .map(r => {
+          // Normalizar fecha a YYYY-MM-DD sin importar el formato que venga
+          let fecha = String(r.fecha);
+          if (fecha.length > 10) {
+            const d = new Date(fecha);
+            if (!isNaN(d)) {
+              fecha = d.getFullYear() + '-' +
+                String(d.getMonth()+1).padStart(2,'0') + '-' +
+                String(d.getDate()).padStart(2,'0');
+            }
+          }
+          return {
+            id:      String(r.id),
+            fecha:   fecha,
+            desc:    String(r.desc || ''),
+            cat:     String(r.cat  || 'otro'),
+            monto:   parseFloat(r.monto) || 0,
+            nota:    String(r.nota || ''),
+            usuario: String(r.usuario || ''),
+          };
+        });
       syncOk = true;
       setSyncStatus('ok', 'Sincronizado');
       render();
@@ -448,13 +469,14 @@ function jsonpCall(params) {
 
 async function pushGasto(gasto) {
   await jsonpCall({
-    action: 'add',
-    id:     gasto.id,
-    fecha:  gasto.fecha,
-    desc:   gasto.desc,
-    cat:    gasto.cat,
-    monto:  gasto.monto,
-    nota:   gasto.nota || ''
+    action:  'add',
+    id:      gasto.id,
+    fecha:   gasto.fecha,
+    desc:    gasto.desc,
+    cat:     gasto.cat,
+    monto:   gasto.monto,
+    nota:    gasto.nota || '',
+    usuario: gasto.usuario || ''
   });
 }
 
@@ -503,6 +525,14 @@ function render() {
   document.getElementById('k-total-sub').textContent = gm.length + ' gastos registrados';
   document.getElementById('k-count').textContent = gm.length;
   document.getElementById('k-prom').textContent = fmt(prom);
+
+  // Desglose por usuario
+  const porUsuario = {};
+  gm.forEach(g => { const u = g.usuario||'Sin nombre'; porUsuario[u]=(porUsuario[u]||0)+g.monto; });
+  const uEl = document.getElementById('k-usuarios');
+  uEl.innerHTML = Object.entries(porUsuario).map(([u,t]) =>
+    `<span style="font-size:0.75rem;background:var(--accent-light);color:var(--accent);padding:3px 10px;border-radius:50px;font-weight:600;">👤 ${u}: ${fmt(t)}</span>`
+  ).join('');
   document.getElementById('k-mayor').textContent = mayor ? fmt(mayor.monto) : '$0';
   document.getElementById('k-mayor-sub').textContent = mayor ? (CATS[mayor.cat]?.label||mayor.cat) : '—';
 
@@ -565,6 +595,7 @@ function render() {
           <div class="exp-meta">
             <span class="exp-cat-badge" style="background:${c.bg};color:${c.color};">${c.label}</span>
             ${fmtDate(g.fecha)}
+            ${g.usuario ? \`· <span style="font-weight:600;color:var(--text2)">\${g.usuario}</span>\` : ''}
           </div>
           ${g.nota ? `<div class="exp-nota">💬 ${escHtml(g.nota)}</div>` : ''}
         </div>
@@ -599,7 +630,8 @@ async function addGasto() {
   const btn = document.getElementById('btn-add');
   btn.disabled = true; btn.textContent = 'Guardando…';
 
-  const gasto = { id: Date.now().toString(), desc, monto, fecha, cat, nota };
+  const usuario = document.getElementById('f-usuario').value;
+  const gasto = { id: Date.now().toString(), desc, monto, fecha, cat, nota, usuario };
 
   try {
     setSyncStatus('loading', 'Guardando…');
@@ -675,6 +707,12 @@ function toast(msg, type='') {
 
 // ── INIT ─────────────────────────────────────────────────────────────
 document.getElementById('f-fecha').value = new Date().toISOString().split('T')[0];
+// Recordar último usuario seleccionado
+const lastUser = localStorage.getItem('autobox_usuario');
+if(lastUser) document.getElementById('f-usuario').value = lastUser;
+document.getElementById('f-usuario').addEventListener('change', function() {
+  localStorage.setItem('autobox_usuario', this.value);
+});
 ['f-desc','f-monto','f-fecha'].forEach(id=>{
   document.getElementById(id).addEventListener('input',()=>document.getElementById(id).classList.remove('error'));
 });
