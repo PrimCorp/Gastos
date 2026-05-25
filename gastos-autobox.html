@@ -266,6 +266,7 @@ body {
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 @media(max-width:360px) { .kpi-value { font-size:1.35rem; } .form-row { grid-template-columns:1fr; } }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -407,7 +408,7 @@ body {
     <div class="section-title">Registrar ingreso</div>
     <div class="form-card">
       <div class="field">
-        <label>USUARIO</label>
+        <label>¿Quién registra?</label>
         <select id="i-usuario">
           <option value="Danny">👤 Danny</option>
           <option value="Tatiana">👤 Tatiana</option>
@@ -438,7 +439,7 @@ body {
         </select>
       </div>
       <div class="field">
-        <label>LOCAL</label>
+        <label>Nota (opcional)</label>
         <textarea id="i-nota" rows="2" placeholder="Cliente, modelo vendido…"></textarea>
       </div>
       <button class="btn-primary green" id="btn-ingreso" onclick="addRegistro('ingreso')">
@@ -487,6 +488,51 @@ body {
       <div id="months-rows">
         <div style="padding:20px;text-align:center;color:var(--text3);font-size:0.82rem;">Sin datos</div>
       </div>
+    </div>
+
+    <div class="section-title" style="margin-top:24px;">Exportar reporte Excel</div>
+    <div class="form-card" style="margin-bottom:0;">
+      <div class="form-row">
+        <div class="field">
+          <label>Mes inicio</label>
+          <select id="exp-mes-ini">
+            <option value="0">Enero</option><option value="1">Febrero</option>
+            <option value="2">Marzo</option><option value="3">Abril</option>
+            <option value="4">Mayo</option><option value="5">Junio</option>
+            <option value="6">Julio</option><option value="7">Agosto</option>
+            <option value="8">Septiembre</option><option value="9">Octubre</option>
+            <option value="10">Noviembre</option><option value="11">Diciembre</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Mes fin</label>
+          <select id="exp-mes-fin">
+            <option value="0">Enero</option><option value="1">Febrero</option>
+            <option value="2">Marzo</option><option value="3">Abril</option>
+            <option value="4">Mayo</option><option value="5">Junio</option>
+            <option value="6">Julio</option><option value="7">Agosto</option>
+            <option value="8">Septiembre</option><option value="9">Octubre</option>
+            <option value="10">Noviembre</option><option value="11">Diciembre</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Año</label>
+          <select id="exp-anio"></select>
+        </div>
+        <div class="field">
+          <label>Incluir</label>
+          <select id="exp-tipo">
+            <option value="ambos">Gastos e Ingresos</option>
+            <option value="gasto">Solo Gastos</option>
+            <option value="ingreso">Solo Ingresos</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-primary blue" id="btn-export" onclick="exportarExcel()">
+        ⬇️ Descargar Excel
+      </button>
     </div>
   </div>
 
@@ -575,6 +621,7 @@ function cargarDatos() {
     setSyncStatus('ok','Sincronizado');
     localStorage.setItem('autobox_backup', JSON.stringify(registros));
     render();
+    initExportSelectors();
   };
   const s = document.createElement('script');
   s.id = '_jload';
@@ -869,6 +916,160 @@ if(lastUser){
 
 cargarDatos();
 setInterval(cargarDatos,60000);
+
+// ── EXPORT EXCEL ─────────────────────────────────────────
+function initExportSelectors() {
+  const anios = [...new Set(registros.map(r => new Date(r.fecha+'T00:00:00').getFullYear()))];
+  const hoyAnio = new Date().getFullYear();
+  if (!anios.includes(hoyAnio)) anios.push(hoyAnio);
+  anios.sort((a,b) => b-a);
+  const sel = document.getElementById('exp-anio');
+  if (!sel) return;
+  sel.innerHTML = anios.map(a => '<option value="'+a+'">'+a+'</option>').join('');
+  // default: mes ini = enero, mes fin = mes actual
+  document.getElementById('exp-mes-ini').value = '0';
+  document.getElementById('exp-mes-fin').value = String(new Date().getMonth());
+}
+
+function exportarExcel() {
+  const mesIni  = parseInt(document.getElementById('exp-mes-ini').value);
+  const mesFin  = parseInt(document.getElementById('exp-mes-fin').value);
+  const anio    = parseInt(document.getElementById('exp-anio').value);
+  const tipoFil = document.getElementById('exp-tipo').value;
+
+  if (mesIni > mesFin) { toast('El mes de inicio no puede ser mayor al mes fin', 'error'); return; }
+
+  const btn = document.getElementById('btn-export');
+  btn.disabled = true; btn.textContent = 'Generando…';
+
+  // Filtrar registros del rango
+  const rango = registros.filter(r => {
+    const d = new Date(r.fecha + 'T00:00:00');
+    return d.getFullYear() === anio && d.getMonth() >= mesIni && d.getMonth() <= mesFin
+      && (tipoFil === 'ambos' || r.tipo === tipoFil);
+  });
+
+  if (!rango.length) {
+    toast('No hay registros en ese período', 'error');
+    btn.disabled = false; btn.textContent = '⬇️ Descargar Excel';
+    return;
+  }
+
+  const wb = XLSX.utils.book_new();
+  const nombreMeses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const periodo = nombreMeses[mesIni] + (mesIni!==mesFin ? ' - '+nombreMeses[mesFin] : '') + ' ' + anio;
+
+  // ── Hoja RESUMEN ──
+  const gastos   = rango.filter(r => r.tipo==='gasto');
+  const ingresos = rango.filter(r => r.tipo==='ingreso');
+  const totalG   = gastos.reduce((s,r)=>s+r.monto,0);
+  const totalI   = ingresos.reduce((s,r)=>s+r.monto,0);
+  const neta     = totalI - totalG;
+  const margen   = totalI > 0 ? ((neta/totalI)*100).toFixed(1)+'%' : 'N/A';
+
+  const resumenData = [
+    ['REPORTE FINANCIERO AUTOBOX'],
+    ['Período:', periodo],
+    ['Generado:', new Date().toLocaleDateString('es-EC')],
+    [],
+    ['RESUMEN GENERAL'],
+    ['Concepto', 'Monto (USD)'],
+    ['Total Ingresos', totalI],
+    ['Total Gastos', totalG],
+    ['Utilidad Neta', neta],
+    ['Margen', margen],
+    [],
+    ['INGRESOS POR CATEGORÍA'],
+    ['Categoría', 'Monto (USD)', '% del total'],
+  ];
+  const porCatI = {};
+  ingresos.forEach(r=>{ const l=(CATS_INGRESO[r.cat]||{label:r.cat}).label; porCatI[l]=(porCatI[l]||0)+r.monto; });
+  Object.entries(porCatI).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt])=>{
+    resumenData.push([cat, amt, totalI>0?((amt/totalI)*100).toFixed(1)+'%':'0%']);
+  });
+  resumenData.push([]);
+  resumenData.push(['GASTOS POR CATEGORÍA']);
+  resumenData.push(['Categoría', 'Monto (USD)', '% del total']);
+  const porCatG = {};
+  gastos.forEach(r=>{ const l=(CATS_GASTO[r.cat]||{label:r.cat}).label; porCatG[l]=(porCatG[l]||0)+r.monto; });
+  Object.entries(porCatG).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt])=>{
+    resumenData.push([cat, amt, totalG>0?((amt/totalG)*100).toFixed(1)+'%':'0%']);
+  });
+
+  // Por mes
+  const porMes = {};
+  rango.forEach(r=>{
+    const d=new Date(r.fecha+'T00:00:00');
+    const k=nombreMeses[d.getMonth()]+' '+d.getFullYear();
+    if(!porMes[k]) porMes[k]={i:0,g:0};
+    if(r.tipo==='ingreso') porMes[k].i+=r.monto; else porMes[k].g+=r.monto;
+  });
+  resumenData.push([]);
+  resumenData.push(['RESUMEN POR MES']);
+  resumenData.push(['Mes','Ingresos','Gastos','Utilidad']);
+  Object.entries(porMes).forEach(([mes,d])=>{
+    resumenData.push([mes, d.i, d.g, d.i-d.g]);
+  });
+
+  const wsResumen = XLSX.utils.aoa_to_sheet(resumenData);
+  wsResumen['!cols'] = [{wch:28},{wch:16},{wch:16}];
+  XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+
+  // ── Hoja INGRESOS ──
+  if (tipoFil !== 'gasto' && ingresos.length) {
+    const iData = [
+      ['INGRESOS - ' + periodo],
+      [],
+      ['Fecha','Descripción','Categoría','Monto (USD)','Nota','Registrado por']
+    ];
+    [...ingresos].sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)).forEach(r=>{
+      iData.push([
+        r.fecha,
+        r.desc,
+        (CATS_INGRESO[r.cat]||{label:r.cat}).label,
+        r.monto,
+        r.nota||'',
+        r.usuario||''
+      ]);
+    });
+    iData.push([]);
+    iData.push(['','','TOTAL', totalI, '', '']);
+    const wsI = XLSX.utils.aoa_to_sheet(iData);
+    wsI['!cols'] = [{wch:12},{wch:32},{wch:20},{wch:14},{wch:24},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, wsI, 'Ingresos');
+  }
+
+  // ── Hoja GASTOS ──
+  if (tipoFil !== 'ingreso' && gastos.length) {
+    const gData = [
+      ['GASTOS - ' + periodo],
+      [],
+      ['Fecha','Descripción','Categoría','Monto (USD)','Nota','Registrado por']
+    ];
+    [...gastos].sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)).forEach(r=>{
+      gData.push([
+        r.fecha,
+        r.desc,
+        (CATS_GASTO[r.cat]||{label:r.cat}).label,
+        r.monto,
+        r.nota||'',
+        r.usuario||''
+      ]);
+    });
+    gData.push([]);
+    gData.push(['','','TOTAL', totalG, '', '']);
+    const wsG = XLSX.utils.aoa_to_sheet(gData);
+    wsG['!cols'] = [{wch:12},{wch:32},{wch:20},{wch:14},{wch:24},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, wsG, 'Gastos');
+  }
+
+  // Descargar
+  const filename = 'AUTOBOX_Reporte_' + periodo.replace(/ /g,'_') + '.xlsx';
+  XLSX.writeFile(wb, filename);
+  toast('Reporte descargado ✓', 'success');
+  btn.disabled = false; btn.textContent = '⬇️ Descargar Excel';
+}
+
 </script>
 </body>
 </html>
