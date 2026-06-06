@@ -479,6 +479,21 @@ body {
       <div class="balance-row-val" id="b-margen" style="font-size:0.9rem;">—</div>
     </div>
 
+    <div class="section-title" style="margin-top:20px;">💰 Saldo acumulado total</div>
+    <div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:14px;padding:20px;margin-bottom:10px;text-align:center;">
+      <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#16a34a;margin-bottom:6px;">Dinero disponible (todo el historial)</div>
+      <div id="acum-saldo" style="font-size:2.8rem;font-weight:700;color:#16a34a;line-height:1;">$0.00</div>
+      <div id="acum-sub" style="font-size:0.78rem;color:#555;margin-top:6px;">Total ingresos − Total gastos</div>
+    </div>
+    <div class="balance-row">
+      <div class="balance-row-label"><span>💰</span> Total ingresado (histórico)</div>
+      <div class="balance-row-val green" id="acum-ingresos">$0.00</div>
+    </div>
+    <div class="balance-row">
+      <div class="balance-row-label"><span>💸</span> Total gastado (histórico)</div>
+      <div class="balance-row-val red" id="acum-gastos">$0.00</div>
+    </div>
+
     <div class="section-title" style="margin-top:20px;">Historial mensual</div>
     <div class="months-table">
       <div class="months-table-hd">
@@ -768,6 +783,25 @@ function renderBalance() {
   document.getElementById('b-gastos').textContent=fmt(totalG);
   document.getElementById('b-margen').textContent=margen!==null?margen+'% margen':'—';
   document.getElementById('b-margen').style.color=neta>0?'var(--green)':neta<0?'var(--red)':'var(--text3)';
+
+  // Acumulado histórico total
+  const totalAcumI = registros.filter(r=>r.tipo==='ingreso').reduce((s,r)=>s+r.monto,0);
+  const totalAcumG = registros.filter(r=>r.tipo==='gasto').reduce((s,r)=>s+r.monto,0);
+  const saldo = totalAcumI - totalAcumG;
+  const saldoEl = document.getElementById('acum-saldo');
+  saldoEl.textContent = fmt(Math.abs(saldo));
+  saldoEl.style.color = saldo >= 0 ? '#16a34a' : '#dc2626';
+  document.getElementById('acum-ingresos').textContent = fmt(totalAcumI);
+  document.getElementById('acum-gastos').textContent = fmt(totalAcumG);
+  const acumSub = document.getElementById('acum-sub');
+  const wrapEl = saldoEl.parentElement;
+  if (saldo >= 0) {
+    acumSub.textContent = '✅ Tienes $'+Math.abs(saldo).toFixed(2)+' disponibles en total';
+    wrapEl.style.background = '#f0fdf4'; wrapEl.style.borderColor = '#16a34a';
+  } else {
+    acumSub.textContent = '⚠️ Los gastos superan los ingresos por $'+Math.abs(saldo).toFixed(2);
+    wrapEl.style.background = '#fef2f2'; wrapEl.style.borderColor = '#dc2626';
+  }
 
   // Tabla histórica — todos los meses con datos
   const mesesConDatos={};
